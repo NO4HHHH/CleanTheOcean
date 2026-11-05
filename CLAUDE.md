@@ -48,9 +48,14 @@ src/server/CoreServer.server.luau   boot: LoadChildren(Runtime) → Init → Sta
 src/server/Runtime/DataService/     ProfileStore + proxy profile + queued messages
 src/server/Runtime/CmdrService      admin console (Cmdr), gated by Developer.IsAdmin
 src/server/Commands/                Cmdr commands, one folder per group (definition + Server pair)
+src/server/Commands/Water/          spawnfloat (test crates/raft tagged Buoyant), cleanfloats
+src/server/Runtime/BuoyancyService  steps every CollectionService "Buoyant" part/model (server-owned)
 src/client/CoreClient.client.luau   boot mirror; sets game attribute ClientLoaded
 src/client/Runtime/DataController   LocalPlayerData, GetDataAsync
 src/client/Runtime/CmdrController   loads the console UI for admins (F2)
+src/client/Runtime/WaterController/ ocean renderer: chunked EditableMesh LOD rings (Chunk, MeshBuilder)
+src/shared/Data/Water.luau          ocean registry: waves, chunk LODs, colour gradient, buoyancy tuning
+src/shared/Water/                   WaveField (shared Gerstner maths), WaterColor, Buoyancy (forces)
 src/shared/Modules/                 ProfileTemplate, Developer (admin gate)
 src/shared/Utility/                 ReplicaService/Controller, BootTimer, RateLimiter,
                                     convertNumberToSuffix
