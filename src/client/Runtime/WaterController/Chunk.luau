@@ -25,9 +25,23 @@
     union of this tick's waving rectangle and last tick's, writes the vertices that wave now plus
     the ones that just stopped (back to flat), and skips the rest -- one BatchSetValues of just
     those. Colours likewise: only that rectangle, every few ticks (foam follows the crests), and
-    the whole chunk only when it lands on a new cell. Colour is WaterColor.Components at the
-    vertex's world grid point with its faded crest, which at the faded edge is exactly the far
-    ring's colour.
+    the whole chunk only when it lands on a new cell. Colour is the gradient at the vertex's world
+    grid point plus its faded foam, which at the faded edge is exactly the far ring's colour.
+
+    COLOUR CACHE. A vertex's gradient colour depends only on its world point, so it is computed
+    once when the chunk lands on a cell (BaseR/G/B) and reused; per tick only the foam is mixed
+    in, and a vertex's colour is written only when its foam level (Crest quantised to 1/32)
+    actually changed. Colour passes are staggered across chunks by the controller.
+
+    UNDERSIDE NORMALS. The underside faces (so the sea is visible from below) share one explicit
+    straight-down normal instead of a second set of engine-computed normals: the engine
+    recomputes auto normals every time a mesh is written, so this halves that work.
+
+    UVS (for a surface texture). Each surface vertex gets U, V = cell-local X, Z / Texture
+    TileStuds. TileStuds divides Chunk.Size, so a chunk's right-edge U is a whole number of tiles
+    and the next chunk starts at 0 on the same texel of a tiling texture: seamless, and never
+    rewritten when a chunk moves cell. The UVs ride the wave's sideways shift, so the texture
+    moves with the water for free.
 
     LOCAL SPACE. The part sits at the cell centre, Y = SeaLevel. The mesh's bounds are pinned by
     never-written anchors (MeshBuilder header), so the scale is 1 and the bounds centre is the
@@ -54,7 +68,8 @@ local WaterColor = require(Shared:WaitForChild("Water"):WaitForChild("WaterColor
 local MeshBuilder = require(script.Parent.MeshBuilder)
 
 local DisplaceGrid = WaveField.DisplaceGrid
-local Components = WaterColor.Components
+local BaseColor = WaterColor.Base
+local MixFoam = WaterColor.MixFoam
 local Quantise = MeshBuilder.Quantise
 local Sqrt = math.sqrt
 local Max = math.max
@@ -84,6 +99,10 @@ local OuterSq = FadeOuter * FadeOuter
 local InnerSq = FadeInner * FadeInner
 local InvSpan = 1 / (FadeOuter - FadeInner)
 
+-- Foam is compared in 1/FoamLevels steps: finer than 8-bit colour can show over the blend.
+local FoamLevels = 32
+local TileStuds = Water.Texture.TileStuds
+
 export type Chunk = {
     Mesh: EditableMesh,
     Part: MeshPart,
@@ -91,6 +110,10 @@ export type Chunk = {
     CIds: { any }, -- colour slot per surface vertex
     Waved: { boolean }, -- vertex currently displaced (not on the flat grid)
     Crest: { number }, -- faded foam per vertex at the last write
+    BaseR: { number }, -- gradient colour per vertex for the current cell (no foam)
+    BaseG: { number },
+    BaseB: { number },
+    LastFoam: { number }, -- quantised foam level last written as a colour (-1 = unwritten)
     -- Last tick's waving rectangle (local indices); I0 > I1 = none.
     I0: number,
     I1: number,
@@ -107,7 +130,6 @@ export type Chunk = {
     Assigned: boolean,
     Shown: boolean,
     Pending: boolean, -- assigned to a new cell, not yet written there
-    ColorCountdown: number,
 }
 
 local ChunkModule = {}
@@ -144,6 +166,12 @@ function ChunkModule.Build(): Chunk?
         Positions[Index] = FlatLocal[Index]
     end
     local Colors = table.create(Surface, Color3.new(1, 1, 1)) :: { Color3 }
+    local UVs = table.create(Surface) :: { Vector2 }
+    for J = 0, Res do
+        for I = 0, Res do
+            UVs[J * N + I + 1] = Vector2.new(I * Step / TileStuds, J * Step / TileStuds)
+        end
+    end
 
     local Triangles = 2 * Res * Res * (if Underside then 2 else 1) + 1
     local FaceVerts = table.create(Triangles) :: { { number } }
@@ -163,13 +191,14 @@ function ChunkModule.Build(): Chunk?
             table.insert(FaceColors, { B, C, D })
             table.insert(FaceNormals, { B, C, D })
             if Underside then
-                local O = Surface -- underside normal slots follow the top ones
+                -- One shared explicit straight-down normal (see UNDERSIDE NORMALS).
+                local Down = Surface + 1
                 table.insert(FaceVerts, { A, B, C })
                 table.insert(FaceColors, { A, B, C })
-                table.insert(FaceNormals, { O + A, O + B, O + C })
+                table.insert(FaceNormals, { Down, Down, Down })
                 table.insert(FaceVerts, { B, D, C })
                 table.insert(FaceColors, { B, D, C })
-                table.insert(FaceNormals, { O + B, O + D, O + C })
+                table.insert(FaceNormals, { Down, Down, Down })
             end
         end
     end
@@ -177,11 +206,13 @@ function ChunkModule.Build(): Chunk?
     local Spec: MeshBuilder.MeshSpec = {
         Positions = Positions,
         Colors = Colors,
-        AutoNormals = if Underside then 2 * Surface else Surface,
-        ExtraNormal = Vector3.yAxis,
+        AutoNormals = Surface,
+        ExtraNormal = -Vector3.yAxis, -- the underside normal (also the anchors' zero-area face)
         FaceVerts = FaceVerts,
         FaceColors = FaceColors,
         FaceNormals = FaceNormals,
+        UVs = UVs,
+        FaceUVs = FaceColors, -- one UV per surface vertex, same indices as the colours
     }
     MeshBuilder.AddAnchors(Spec, Extent)
 
@@ -205,6 +236,10 @@ function ChunkModule.Build(): Chunk?
         CIds = Built.CIds,
         Waved = table.create(Surface, false),
         Crest = table.create(Surface, 0),
+        BaseR = table.create(Surface, 0),
+        BaseG = table.create(Surface, 0),
+        BaseB = table.create(Surface, 0),
+        LastFoam = table.create(Surface, -1),
         I0 = 1,
         I1 = 0,
         J0 = 1,
@@ -219,7 +254,6 @@ function ChunkModule.Build(): Chunk?
         Assigned = false,
         Shown = false,
         Pending = false,
-        ColorCountdown = 0,
     }
 end
 
@@ -260,7 +294,9 @@ function ChunkModule.Update(Target: Chunk, Time: number, CamX: number, CamZ: num
     local Waving = I0 <= I1 and J0 <= J1
     local CountX = I1 - I0 + 1
     if Waving then
+        debug.profilebegin("Ocean.DisplaceGrid")
         DisplaceGrid(MinI + I0, MinJ + J0, Step, CountX, J1 - J0 + 1, Time, nil, SX, SY, SZ, SC)
+        debug.profileend()
     end
 
     -- Area to walk: everything on a fresh cell, else this rectangle united with last tick's.
@@ -279,6 +315,7 @@ function ChunkModule.Update(Target: Chunk, Time: number, CamX: number, CamZ: num
         end
     end
 
+    debug.profilebegin("Ocean.Walk")
     table.clear(WriteIds)
     table.clear(WritePos)
     local Count = 0
@@ -326,8 +363,9 @@ function ChunkModule.Update(Target: Chunk, Time: number, CamX: number, CamZ: num
                         end
                     end
                 end
-                if F <= 0 and (Waved[K] or Full) then
-                    -- Just stopped waving (or a fresh cell): back to the flat grid.
+                if F <= 0 and Waved[K] then
+                    -- Just stopped waving: back to the flat grid. (Not every vertex on a fresh
+                    -- cell: positions are cell-relative, so a flat vertex is already right.)
                     Count += 1
                     WriteIds[Count] = VIds[K]
                     WritePos[Count] = FlatLocal[K]
@@ -338,13 +376,32 @@ function ChunkModule.Update(Target: Chunk, Time: number, CamX: number, CamZ: num
         end
     end
 
+    debug.profileend()
+
     if Count > 0 then
+        debug.profilebegin("Ocean.WritePositions")
         local Mesh = Target.Mesh
         if UseBatch then
             (Mesh :: any):BatchSetValues(WriteIds, WritePos)
         else
             for Index = 1, Count do
                 Mesh:SetPosition(WriteIds[Index], WritePos[Index])
+            end
+        end
+        debug.profileend()
+    end
+
+    -- A fresh cell: cache the gradient colour of every vertex there, and mark every colour
+    -- unwritten so the pass below repaints the whole chunk.
+    local BaseR, BaseG, BaseB, LastFoam = Target.BaseR, Target.BaseG, Target.BaseB, Target.LastFoam
+    if Full then
+        for J = 0, Res do
+            local GZ = (MinJ + J) * Step
+            local Row = J * N
+            for I = 0, Res do
+                local K = Row + I + 1
+                BaseR[K], BaseG[K], BaseB[K] = BaseColor((MinI + I) * Step, GZ)
+                LastFoam[K] = -1
             end
         end
     end
@@ -361,6 +418,7 @@ function ChunkModule.Update(Target: Chunk, Time: number, CamX: number, CamZ: num
         end
     end
     if DoColor and Target.CI0 <= Target.CI1 then
+        debug.profilebegin("Ocean.Colors")
         WI0, WI1, WJ0, WJ1 = Target.CI0, Target.CI1, Target.CJ0, Target.CJ1
         Target.CI0, Target.CI1 = 1, 0
         table.clear(ColorIds)
@@ -368,24 +426,31 @@ function ChunkModule.Update(Target: Chunk, Time: number, CamX: number, CamZ: num
         local CIds = Target.CIds
         local CCount = 0
         for J = WJ0, WJ1 do
-            local GZ = (MinJ + J) * Step
             local Row = J * N
             for I = WI0, WI1 do
                 local K = Row + I + 1
-                local R, G, B = Components((MinI + I) * Step, GZ, Crest[K])
-                CCount += 1
-                ColorIds[CCount] = CIds[K]
-                ColorVals[CCount] = Quantise(R, G, B)
+                -- Only vertices whose foam level changed (or that were never painted here).
+                local Level = (Crest[K] * FoamLevels + 0.5) // 1
+                if Level ~= LastFoam[K] then
+                    LastFoam[K] = Level
+                    local R, G, B = MixFoam(BaseR[K], BaseG[K], BaseB[K], Level / FoamLevels)
+                    CCount += 1
+                    ColorIds[CCount] = CIds[K]
+                    ColorVals[CCount] = Quantise(R, G, B)
+                end
             end
         end
-        local Mesh = Target.Mesh
-        if UseBatch then
-            (Mesh :: any):BatchSetValues(ColorIds, ColorVals)
-        else
-            for Index = 1, CCount do
-                Mesh:SetColor(ColorIds[Index], ColorVals[Index])
+        if CCount > 0 then
+            local Mesh = Target.Mesh
+            if UseBatch then
+                (Mesh :: any):BatchSetValues(ColorIds, ColorVals)
+            else
+                for Index = 1, CCount do
+                    Mesh:SetColor(ColorIds[Index], ColorVals[Index])
+                end
             end
         end
+        debug.profileend()
     end
 
     Target.I0, Target.I1, Target.J0, Target.J1 = NewI0, NewI1, NewJ0, NewJ1

@@ -85,6 +85,10 @@ export type WaterDef = {
     Horizon: {
         Rings: number,
     },
+    Texture: {
+        TileStuds: number,
+        SurfaceAppearance: string,
+    },
     PlayerFloat: {
         RootOffset: number,
         Frequency: number,
@@ -172,6 +176,16 @@ local Water: WaterDef = {
         Rings = 5,
     },
 
+    -- Surface texture. The wave chunks carry world-locked UVs (one texture tile every TileStuds
+    -- studs; must divide Chunk.Size so chunk edges stay seamless). If
+    -- ReplicatedStorage.Assets[SurfaceAppearance] exists -- a SurfaceAppearance authored in Studio
+    -- with a tiling ripple NormalMap and a low RoughnessMap, ColorMap left empty -- every chunk
+    -- gets a clone of it. Without it the water is untextured, as before.
+    Texture = {
+        TileStuds = 32,
+        SurfaceAppearance = "WaterSurface",
+    },
+
     -- The local character floats when it is in the water and not standing on ground
     -- (WaterController/PlayerFloat). A spring holds the HumanoidRootPart at RootOffset studs
     -- relative to the wave surface under it, so the player bobs with the same swell the mesh
@@ -233,6 +247,7 @@ table.freeze(Water.Fade)
 table.freeze(Water.FarPlane)
 table.freeze(Water.Horizon)
 table.freeze(Water.PlayerFloat)
+table.freeze(Water.Texture)
 table.freeze(Water.Underwater)
 table.freeze(Water.Gradient)
 table.freeze(Water.Buoyancy)

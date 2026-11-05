@@ -72,6 +72,21 @@ function WaterColor.At(X: number, Z: number): Color3
     return Color3.new(R, G, B)
 end
 
+-- The gradient colour at (X, Z) with no foam. Constant per world point, so callers can cache it.
+WaterColor.Base = Base
+
+-- Blends a cached base colour toward FoamColor by Crest (0..1, smoothstepped).
+function WaterColor.MixFoam(R: number, G: number, B: number, Crest: number): (number, number, number)
+    if Crest > 0 then
+        local T = if Crest > 1 then 1 else Crest
+        T = T * T * (3 - 2 * T)
+        R += (FoamR - R) * T
+        G += (FoamG - G) * T
+        B += (FoamB - B) * T
+    end
+    return R, G, B
+end
+
 function WaterColor.Components(X: number, Z: number, Crest: number): (number, number, number)
     local R, G, B = Base(X, Z)
     if Crest > 0 then

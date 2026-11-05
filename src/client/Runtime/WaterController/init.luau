@@ -56,8 +56,10 @@ local WaterController = {}
 
 -- Seconds between wave ticks.
 local TickInterval = 1 / math.max(1, Water.Chunk.UpdateHz)
--- Colours of a waving chunk are rewritten every ColorStride-th tick (foam moves with crests).
-local ColorStride = 3
+-- A waving chunk's foam colours are refreshed every ColorStride-th tick, staggered by slot so
+-- the nine chunks never all recolour on the same frame.
+local ColorStride = 4
+local TickCount = 0
 
 local Size = Water.Chunk.Size
 local SeaLevel = Water.SeaLevel
@@ -149,7 +151,7 @@ local function ByRank(A: Chunk, B: Chunk): boolean
 end
 
 local function RunChunk(Target: Chunk, Time: number, CamX: number, CamZ: number)
-    local DoColor = Target.Pending or Target.ColorCountdown <= 0
+    local DoColor = Target.Pending or (TickCount + Target.Rank) % ColorStride == 0
     local UseBatch = MeshBuilder.UseBatch
     local Ok, Error = (pcall :: any)(ChunkModule.Update, Target, Time, CamX, CamZ, DoColor, UseBatch)
     if not Ok then
@@ -162,7 +164,6 @@ local function RunChunk(Target: Chunk, Time: number, CamX: number, CamZ: number)
         end
         return
     end
-    Target.ColorCountdown = if DoColor then ColorStride - 1 else Target.ColorCountdown - 1
     if Target.Pending then
         Show(Target)
     end
@@ -188,6 +189,7 @@ local function RunTick()
         Assign()
     end
 
+    TickCount += 1
     local Time = WaveField.Now()
     local CamX, CamZ = Position.X, Position.Z
     table.clear(Queue)
@@ -198,7 +200,9 @@ local function RunTick()
     end
     table.sort(Queue, ByRank)
     for _, Target in Queue do
+        debug.profilebegin("Ocean.Chunk")
         RunChunk(Target, Time, CamX, CamZ)
+        debug.profileend()
     end
 end
 
@@ -214,10 +218,13 @@ local function Step(Dt: number)
         end
     end
 
+    -- Carry the remainder so UpdateHz is honest; clamp so a long hitch can't queue a burst.
     SinceTick += Dt
     if SinceTick >= TickInterval then
-        SinceTick = 0
+        SinceTick = math.min(SinceTick - TickInterval, TickInterval)
+        debug.profilebegin("Ocean.Tick")
         RunTick()
+        debug.profileend()
     end
 end
 

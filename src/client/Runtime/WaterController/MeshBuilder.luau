@@ -39,6 +39,9 @@ export type MeshSpec = {
     FaceVerts: { { number } },
     FaceColors: { { number } },
     FaceNormals: { { number } },
+    -- Optional texture coordinates: UV slots and per-face UV-slot triples.
+    UVs: { Vector2 }?,
+    FaceUVs: { { number } }?,
 }
 
 export type Built = {
@@ -80,6 +83,10 @@ function MeshBuilder.AddAnchors(Spec: MeshSpec, Extent: Vector3)
     table.insert(Spec.FaceVerts, { Plus, Mid, Minus })
     table.insert(Spec.FaceColors, { 1, 1, 1 })
     table.insert(Spec.FaceNormals, { Extra, Extra, Extra })
+    local FaceUVs = Spec.FaceUVs
+    if FaceUVs and FaceUVs ~= Spec.FaceColors then
+        table.insert(FaceUVs, { 1, 1, 1 })
+    end
 end
 
 local function NewMesh(): EditableMesh?
@@ -122,6 +129,16 @@ local function BuildBatch(Mesh: EditableMesh, Spec: MeshSpec): ({ any }, { any }
     local FIds = AnyMesh:BatchAdd(Enum.MeshAttribute.Face, FaceVerts) :: { any }
     AnyMesh:BatchSetFaceAttributes(FIds, FaceColors)
     AnyMesh:BatchSetFaceAttributes(FIds, FaceNormals)
+    local UVs, SpecFaceUVs = Spec.UVs, Spec.FaceUVs
+    if UVs and SpecFaceUVs then
+        local UIds = AnyMesh:BatchAdd(Enum.MeshAttribute.UV, UVs) :: { any }
+        local FaceUVs = table.create(Count) :: { { any } }
+        for Index = 1, Count do
+            local U = SpecFaceUVs[Index]
+            FaceUVs[Index] = { UIds[U[1]], UIds[U[2]], UIds[U[3]] }
+        end
+        AnyMesh:BatchSetFaceAttributes(FIds, FaceUVs)
+    end
     return VIds, CIds
 end
 
@@ -135,11 +152,24 @@ local function BuildLoop(Mesh: EditableMesh, Spec: MeshSpec): ({ any }, { any })
         CIds[Index] = Mesh:AddColor(Color, 1)
     end
     local NIds = AddNormals(Mesh, Spec)
+    local UVs, SpecFaceUVs = Spec.UVs, Spec.FaceUVs
+    local UIds: { any }? = nil
+    if UVs and SpecFaceUVs then
+        local Made = table.create(#UVs) :: { any }
+        for Index, UV in UVs do
+            Made[Index] = Mesh:AddUV(UV)
+        end
+        UIds = Made
+    end
     for Index, V in Spec.FaceVerts do
         local C, N = Spec.FaceColors[Index], Spec.FaceNormals[Index]
         local FaceId = Mesh:AddTriangle(VIds[V[1]], VIds[V[2]], VIds[V[3]])
         Mesh:SetFaceColors(FaceId, { CIds[C[1]], CIds[C[2]], CIds[C[3]] })
         Mesh:SetFaceNormals(FaceId, { NIds[N[1]], NIds[N[2]], NIds[N[3]] })
+        if UIds and SpecFaceUVs then
+            local U = SpecFaceUVs[Index]
+            Mesh:SetFaceUVs(FaceId, { UIds[U[1]], UIds[U[2]], UIds[U[3]] })
+        end
     end
     return VIds, CIds
 end
@@ -218,6 +248,13 @@ function MeshBuilder.MakePart(Mesh: EditableMesh, Extent: Vector3, Name: string)
     Part.Material = OceanMaterial
     Part.Color = Color3.new(1, 1, 1) -- multiplies the vertex colours
     Part.Transparency = Water.Transparency
+    -- Surface texture: a SurfaceAppearance authored in Studio (scripts can't set its texture
+    -- ids), cloned onto every ocean part if it exists. Needs the mesh UVs (Chunk.luau).
+    local Assets = ReplicatedStorage:FindFirstChild("Assets")
+    local Look = Assets and Assets:FindFirstChild(Water.Texture.SurfaceAppearance)
+    if Look and Look:IsA("SurfaceAppearance") then
+        Look:Clone().Parent = Part
+    end
     return Part
 end
 
