@@ -187,14 +187,16 @@ function WaveField.Displace(X: number, Z: number, Time: number, WaveCount: numbe
         Sxz += SDxz[Index] * S
     end
     local M = CalmAt(X, Z)
-    local Fold = (1 - ((1 - Sxx) * (1 - Szz) - Sxz * Sxz)) * M
+    -- Foam from the FULL-size wave shape, then faded by the calming. Scaling the fold first
+    -- (as before) pushed it under FoamThreshold everywhere near spawn: no foam at all there.
+    local Fold = 1 - ((1 - Sxx) * (1 - Szz) - Sxz * Sxz)
     local Crest = (Fold - FoamThreshold) * FoamScale
     if Crest < 0 then
         Crest = 0
     elseif Crest > 1 then
         Crest = 1
     end
-    return DX * M, SeaLevel + (Y - SeaLevel) * M, DZ * M, Crest
+    return DX * M, SeaLevel + (Y - SeaLevel) * M, DZ * M, Crest * M
 end
 
 function WaveField.HeightAt(X: number, Z: number, Time: number, WaveCount: number?): number
@@ -339,7 +341,7 @@ function WaveField.DisplaceGrid(
                 IB += CountZ
             end
             local M = if AnyCalm then CalmAt((StartI + I - 1) * Step, GZ) else 1
-            local Fold = (1 - ((1 - Sxx) * (1 - Szz) - Sxz * Sxz)) * M
+            local Fold = 1 - ((1 - Sxx) * (1 - Szz) - Sxz * Sxz) -- full-size shape (see Displace)
             local Crest = (Fold - FoamThreshold) * FoamScale
             if Crest < 0 then
                 Crest = 0
@@ -349,7 +351,7 @@ function WaveField.DisplaceGrid(
             OutX[Index] = DX * M
             OutY[Index] = SeaLevel + (Y - SeaLevel) * M
             OutZ[Index] = DZ * M
-            OutCrest[Index] = Crest
+            OutCrest[Index] = Crest * M
         end
     end
 end

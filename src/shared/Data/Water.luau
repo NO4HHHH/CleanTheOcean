@@ -125,14 +125,14 @@ local Water: WaterDef = {
     SeaLevel = 0,
     Gravity = 30,
 
-    -- Largest amplitude first. Steepness sum = 0.82 (< 1: no loops anywhere).
+    -- Largest amplitude first. Steepness sum = 0.75 (< 1: no loops anywhere). The tiny ripple is
+    -- left to the surface texture: an 8-stud grid cannot draw a 38-stud wave cleanly.
     Waves = {
         { Angle = 20, Wavelength = 520, Amplitude = 6.5, Steepness = 0.22 }, -- primary swell
         { Angle = -25, Wavelength = 340, Amplitude = 4.0, Steepness = 0.18 }, -- cross swell
         { Angle = 65, Wavelength = 140, Amplitude = 1.6, Steepness = 0.14 }, -- long chop
         { Angle = -55, Wavelength = 95, Amplitude = 1.0, Steepness = 0.12 }, -- chop
         { Angle = 115, Wavelength = 60, Amplitude = 0.55, Steepness = 0.09 }, -- short chop
-        { Angle = 5, Wavelength = 38, Amplitude = 0.3, Steepness = 0.07 }, -- ripple
     },
     PhysicsWaveCount = 4,
 
@@ -149,11 +149,11 @@ local Water: WaterDef = {
     OceanSize = 20000,
 
     Chunk = {
-        -- 256 studs / 64 quads = 4-stud quads: resolves the 38-stud ripple with ~10 quads.
+        -- 256 studs / 32 quads = 8-stud quads; the 60-stud chop is the shortest wave drawn.
         Size = 256,
-        Resolution = 64,
+        Resolution = 32, -- 8-stud quads: 4x fewer vertices than 64 (the big perf lever)
         -- Wave updates per second (all nine chunks together, one shared Time per update).
-        UpdateHz = 60,
+        UpdateHz = 30,
     },
 
     -- Wave fade, studs from the camera (horizontal). Outer <= Chunk.Size (see header).
@@ -218,7 +218,7 @@ local Water: WaterDef = {
         { Distance = 2500, Color = Color3.new(0.02, 0.16, 0.36) }, -- deep ocean
     },
     FoamColor = Color3.new(0.93, 0.98, 1.0),
-    FoamThreshold = 0.3,
+    FoamThreshold = 0.18, -- lower = foam on more of each crest
     -- Opaque: a see-through sea showed the chunk edges and costs sorting on ten big meshes.
     Transparency = 0,
     -- SmoothPlastic shows vertex colours faithfully; Glass tints and darkens them.
