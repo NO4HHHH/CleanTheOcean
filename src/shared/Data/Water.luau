@@ -63,6 +63,11 @@ export type WaterDef = {
     Gravity: number,
     Waves: { WaveDef },
     PhysicsWaveCount: number,
+    Calm: {
+        Inner: number,
+        Outer: number,
+        Min: number,
+    },
     OceanSize: number,
     Chunk: {
         Size: number,
@@ -126,6 +131,15 @@ local Water: WaterDef = {
         { Angle = 5, Wavelength = 38, Amplitude = 0.3, Steepness = 0.07 }, -- ripple
     },
     PhysicsWaveCount = 4,
+
+    -- Calmer water around spawn: every wave's displacement (height, sideways shift, foam) is
+    -- scaled by Min within Inner studs of the origin, rising smoothly to full size at Outer.
+    -- Applied inside WaveField, so the mesh, buoyancy, PlayerFloat and Underwater all agree.
+    Calm = {
+        Inner = 250, -- studs: fully calm inside this radius
+        Outer = 1000, -- studs: full-size waves beyond this radius
+        Min = 0.3, -- wave scale at spawn (0 = glassy flat, 1 = no calming)
+    },
 
     -- Square, centred on the origin (the starter island).
     OceanSize = 20000,
@@ -213,6 +227,7 @@ for _, Stop in Water.Gradient do
     table.freeze(Stop)
 end
 table.freeze(Water.Waves)
+table.freeze(Water.Calm)
 table.freeze(Water.Chunk)
 table.freeze(Water.Fade)
 table.freeze(Water.FarPlane)

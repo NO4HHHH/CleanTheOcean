@@ -90,6 +90,32 @@ local FoamThreshold = Water.FoamThreshold
 local FoamPeak = SteepSum * 0.75
 local FoamScale = if FoamPeak > FoamThreshold then 1 / (FoamPeak - FoamThreshold) else 0
 
+--[[
+    CALM NEAR SPAWN (Data/Water.Calm). The whole displacement of a calm-grid point -- sideways
+    shift, height above SeaLevel and foam -- is multiplied by M(X, Z), which is Calm.Min within
+    Calm.Inner of the origin and rises by smoothstep to 1 at Calm.Outer. It is evaluated at the
+    CALM point (the grid point before it is displaced), so the mesh, which only knows grid points,
+    and HeightAt, which inverts to the calm point, see the same factor. M varies over hundreds of
+    studs while the shift is at most ~34, so the fixed-point inversion still converges.
+]]
+local CalmInner = Water.Calm.Inner
+local CalmOuter = math.max(Water.Calm.Outer, CalmInner + 1)
+local CalmMin = math.clamp(Water.Calm.Min, 0, 1)
+local CalmInnerSq = CalmInner * CalmInner
+local CalmOuterSq = CalmOuter * CalmOuter
+local CalmInvSpan = 1 / (CalmOuter - CalmInner)
+
+local function CalmAt(X: number, Z: number): number
+    local D2 = X * X + Z * Z
+    if D2 >= CalmOuterSq then
+        return 1
+    elseif D2 <= CalmInnerSq then
+        return CalmMin
+    end
+    local T = (Sqrt(D2) - CalmInner) * CalmInvSpan
+    return CalmMin + (1 - CalmMin) * (T * T * (3 - 2 * T))
+end
+
 local CachedTime = -math.huge
 
 local function Refresh(Time: number)
@@ -120,7 +146,8 @@ local function Shift(X: number, Z: number, N: number): (number, number, number)
         DZ += HDz[Index] * C
         Y += Amp[Index] * Sin(Theta)
     end
-    return DX, DZ, Y
+    local M = CalmAt(X, Z)
+    return DX * M, DZ * M, SeaLevel + (Y - SeaLevel) * M
 end
 
 -- Calm-grid point whose displaced position lies above world (X, Z).
@@ -159,14 +186,15 @@ function WaveField.Displace(X: number, Z: number, Time: number, WaveCount: numbe
         Szz += SDzz[Index] * S
         Sxz += SDxz[Index] * S
     end
-    local Fold = 1 - ((1 - Sxx) * (1 - Szz) - Sxz * Sxz)
+    local M = CalmAt(X, Z)
+    local Fold = (1 - ((1 - Sxx) * (1 - Szz) - Sxz * Sxz)) * M
     local Crest = (Fold - FoamThreshold) * FoamScale
     if Crest < 0 then
         Crest = 0
     elseif Crest > 1 then
         Crest = 1
     end
-    return DX, Y, DZ, Crest
+    return DX * M, SeaLevel + (Y - SeaLevel) * M, DZ * M, Crest
 end
 
 function WaveField.HeightAt(X: number, Z: number, Time: number, WaveCount: number?): number
@@ -187,6 +215,11 @@ function WaveField.SurfaceAt(X: number, Z: number, Time: number, WaveCount: numb
         Nz -= KADz[Index] * C
         Ny -= Steep[Index] * Sin(Theta)
     end
+    -- Calming scales every slope term (Ny's deviation from 1 included) by the same factor.
+    local M = CalmAt(X0, Z0)
+    Nx *= M
+    Nz *= M
+    Ny = 1 + (Ny - 1) * M
     local Length = Sqrt(Nx * Nx + Ny * Ny + Nz * Nz)
     if Length < 1e-6 then
         return Y, Vector3.yAxis
@@ -275,8 +308,16 @@ function WaveField.DisplaceGrid(
         end
     end
 
+    -- Calming: skip the per-vertex factor when the whole grid lies beyond Calm.Outer.
+    local GX0, GX1 = StartI * Step, (StartI + CountX - 1) * Step
+    local GZ0, GZ1 = StartJ * Step, (StartJ + CountZ - 1) * Step
+    local NearX = math.max(GX0, 0, -GX1)
+    local NearZ = math.max(GZ0, 0, -GZ1)
+    local AnyCalm = NearX * NearX + NearZ * NearZ < CalmOuterSq
+
     local Index = 0
     for J = 1, CountZ do
+        local GZ = (StartJ + J - 1) * Step
         for I = 1, CountX do
             Index += 1
             local DX, DZ, Y = 0, 0, SeaLevel
@@ -297,16 +338,17 @@ function WaveField.DisplaceGrid(
                 IA += CountX
                 IB += CountZ
             end
-            local Fold = 1 - ((1 - Sxx) * (1 - Szz) - Sxz * Sxz)
+            local M = if AnyCalm then CalmAt((StartI + I - 1) * Step, GZ) else 1
+            local Fold = (1 - ((1 - Sxx) * (1 - Szz) - Sxz * Sxz)) * M
             local Crest = (Fold - FoamThreshold) * FoamScale
             if Crest < 0 then
                 Crest = 0
             elseif Crest > 1 then
                 Crest = 1
             end
-            OutX[Index] = DX
-            OutY[Index] = Y
-            OutZ[Index] = DZ
+            OutX[Index] = DX * M
+            OutY[Index] = SeaLevel + (Y - SeaLevel) * M
+            OutZ[Index] = DZ * M
             OutCrest[Index] = Crest
         end
     end
