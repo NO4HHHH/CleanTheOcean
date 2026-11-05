@@ -1,0 +1,2 @@
+# Line endings are mixed per file on purpose (CLAUDE.md): store bytes as-is, never convert.
+* -text

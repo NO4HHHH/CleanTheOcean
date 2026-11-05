@@ -1,0 +1,46 @@
+{
+  "name": "CleanTheOcean",
+  "serveAddress": "0.0.0.0",
+  "servePort": 34872,
+  "tree": {
+    "$className": "DataModel",
+    "Workspace": {
+      "$className": "Workspace",
+      "$properties": {
+        "StreamingEnabled": true,
+        "StreamingTargetRadius": 320,
+        "StreamingMinRadius": 96,
+        "StreamOutBehavior": "Opportunistic"
+      }
+    },
+    "ReplicatedStorage": {
+      "Shared": {
+        "$path": "src/shared"
+      },
+      "FFlags": {
+        "$path": "src/flags"
+      },
+      "Packages": {
+        "$path": "Packages",
+        "Server": {
+          "$path": "ServerPackages"
+        }
+      }
+    },
+    "ServerScriptService": {
+      "Server": {
+        "$path": "src/server"
+      }
+    },
+    "StarterPlayer": {
+      "$properties": {
+        "CharacterWalkSpeed": 20
+      },
+      "StarterPlayerScripts": {
+        "Client": {
+          "$path": "src/client"
+        }
+      }
+    }
+  }
+}

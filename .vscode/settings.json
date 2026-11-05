@@ -1,0 +1,7 @@
+{
+    "stylua.targetReleaseVersion": "latest",
+    "discord.enabled": true,
+    "robloxLsp.diagnostics.workspaceDelay": -1,
+    "luau-lsp.sourcemap.rojoProjectFile": "default.project.json",
+    "claudeCodeChat.permissions.yoloMode": true
+}

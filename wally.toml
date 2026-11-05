@@ -1,0 +1,29 @@
+[package]
+name = "bruce/cleantheocean"
+version = "0.1.0"
+registry = "https://github.com/UpliftGames/wally-index"
+realm = "shared"
+
+[server-dependencies]
+ProfileStore = "lm-loleris/profilestore@1.0.3"
+
+[dependencies]
+Promise = "evaera/promise@4.0.0"
+Loader = "bongusbingis/loader@3.0.3"
+GoodSignal = "stravant/goodsignal@0.3.0"
+SimplePath = "jessekroeske/simplepath@2.2.2"
+ByteNet = "bongusbingis/bytenet@0.6.0"
+Zone = "legendoj1/zoneplus@3.2.2"
+TestEZ = "roblox/testez@0.4.1"
+Objectcache = "pyseph/objectcache@1.4.6"
+Camerashaker = "brittonfischer/camerashaker@0.1.0"
+Topbarplus = "1foreverhd/topbarplus@3.4.0"
+Fastcast = "solarhorizon/fastcast@13.2.1"
+Partcache = "4igz/partcache@1.0.1"
+Fusion = "elttob/fusion@0.3.0"
+React = "jsdotlua/react@17.2.1"
+ReactRoblox = "jsdotlua/react-roblox@17.2.1"
+Iris = "sirmallard/iris@2.5.1"
+Cmdr = "evaera/cmdr@1.12.0"
+Janitor = "howmanysmall/janitor@1.18.3"
+EzVisualz = "arxkdev/ezvisualz@1.2.0"
