@@ -194,4 +194,122 @@ function WaveField.SurfaceAt(X: number, Z: number, Time: number, WaveCount: numb
     return Y, Vector3.new(Nx / Length, Ny / Length, Nz / Length)
 end
 
+-- Per-wave column / row phase tables for DisplaceGrid, grown on demand and reused.
+local GridCapA = 0
+local GridCapB = 0
+local GridCosA: { number } = {}
+local GridSinA: { number } = {}
+local GridCosB: { number } = {}
+local GridSinB: { number } = {}
+
+--[[
+    Displace for a whole regular, world-aligned grid at once, without trig per vertex.
+
+    The grid point (I, J) is X = (StartI + I) * Step, Z = (StartJ + J) * Step for I = 0..CountX-1,
+    J = 0..CountZ-1. Points are addressed by INTEGER grid index times Step (not X0 + I * Step) so
+    two callers that share a grid point (neighbouring ocean chunks) feed bit-identical X and Z.
+
+    Each wave's phase is separable on such a grid:
+        theta(I, J) = k Dx X + k Dz Z - (omega t + phase) = A_I + B_J
+        A_I = k Dx X_I - (omega t + phase)   (one per column)
+        B_J = k Dz Z_J                        (one per row)
+    so cos/sin are taken CountX + CountZ times per wave instead of CountX * CountZ times, and
+    each vertex combines them with cos(A+B) = cosA cosB - sinA sinB,
+    sin(A+B) = sinA cosB + cosA sinB: four multiplies and two adds instead of two trig calls.
+
+    Output (row-major, J outer, I inner, 1-based: Index = J * CountX + I + 1) goes into the
+    caller-owned arrays: OutX/OutZ = horizontal shift DX/DZ, OutY = absolute height (SeaLevel
+    included), OutCrest = foam factor -- exactly what Displace returns for that point. Nothing
+    is allocated once the phase tables have grown to the largest grid.
+
+    Equivalence with Displace: the only difference is cos(A+B) by the angle-sum identity versus
+    cos of the summed angle. Checked by porting both functions line for line to Python (IEEE
+    doubles, as Luau): over a 65x65 grid at X, Z up to +-10,000 studs and server time ~1.7e9 s,
+    the largest difference in DX/Y/DZ was ~7e-13 studs and in Crest ~7e-14.
+]]
+function WaveField.DisplaceGrid(
+    StartI: number,
+    StartJ: number,
+    Step: number,
+    CountX: number,
+    CountZ: number,
+    Time: number,
+    WaveCount: number?,
+    OutX: { number },
+    OutY: { number },
+    OutZ: { number },
+    OutCrest: { number }
+)
+    Refresh(Time)
+    local N = Count(WaveCount)
+
+    local NeedA = N * CountX
+    if NeedA > GridCapA then
+        GridCosA = table.create(NeedA, 0)
+        GridSinA = table.create(NeedA, 0)
+        GridCapA = NeedA
+    end
+    local NeedB = N * CountZ
+    if NeedB > GridCapB then
+        GridCosB = table.create(NeedB, 0)
+        GridSinB = table.create(NeedB, 0)
+        GridCapB = NeedB
+    end
+    local CosA, SinA, CosB, SinB = GridCosA, GridSinA, GridCosB, GridSinB
+
+    for W = 1, N do
+        local Kx = KDx[W]
+        local Kz = KDz[W]
+        local P = PhaseT[W]
+        local BaseA = (W - 1) * CountX
+        for I = 0, CountX - 1 do
+            local A = Kx * ((StartI + I) * Step) - P
+            CosA[BaseA + I + 1] = Cos(A)
+            SinA[BaseA + I + 1] = Sin(A)
+        end
+        local BaseB = (W - 1) * CountZ
+        for J = 0, CountZ - 1 do
+            local B = Kz * ((StartJ + J) * Step)
+            CosB[BaseB + J + 1] = Cos(B)
+            SinB[BaseB + J + 1] = Sin(B)
+        end
+    end
+
+    local Index = 0
+    for J = 1, CountZ do
+        for I = 1, CountX do
+            Index += 1
+            local DX, DZ, Y = 0, 0, SeaLevel
+            local Sxx, Szz, Sxz = 0, 0, 0
+            local IA = I
+            local IB = J
+            for W = 1, N do
+                local Ca, Sa = CosA[IA], SinA[IA]
+                local Cb, Sb = CosB[IB], SinB[IB]
+                local C = Ca * Cb - Sa * Sb
+                local S = Sa * Cb + Ca * Sb
+                DX += HDx[W] * C
+                DZ += HDz[W] * C
+                Y += Amp[W] * S
+                Sxx += SDxx[W] * S
+                Szz += SDzz[W] * S
+                Sxz += SDxz[W] * S
+                IA += CountX
+                IB += CountZ
+            end
+            local Fold = 1 - ((1 - Sxx) * (1 - Szz) - Sxz * Sxz)
+            local Crest = (Fold - FoamThreshold) * FoamScale
+            if Crest < 0 then
+                Crest = 0
+            elseif Crest > 1 then
+                Crest = 1
+            end
+            OutX[Index] = DX
+            OutY[Index] = Y
+            OutZ[Index] = DZ
+            OutCrest[Index] = Crest
+        end
+    end
+end
+
 return table.freeze(WaveField)

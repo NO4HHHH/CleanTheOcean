@@ -53,7 +53,8 @@ src/server/Runtime/BuoyancyService  steps every CollectionService "Buoyant" part
 src/client/CoreClient.client.luau   boot mirror; sets game attribute ClientLoaded
 src/client/Runtime/DataController   LocalPlayerData, GetDataAsync
 src/client/Runtime/CmdrController   loads the console UI for admins (F2)
-src/client/Runtime/WaterController/ ocean renderer: chunked EditableMesh LOD rings (Chunk, MeshBuilder)
+src/client/Runtime/WaterController/ ocean: 3x3 wave chunks + far ring (EditableMesh) + horizon Parts,
+                                    all following the camera cell; Underwater look; PlayerFloat
 src/shared/Data/Water.luau          ocean registry: waves, chunk LODs, colour gradient, buoyancy tuning
 src/shared/Water/                   WaveField (shared Gerstner maths), WaterColor, Buoyancy (forces)
 src/shared/Modules/                 ProfileTemplate, Developer (admin gate)
